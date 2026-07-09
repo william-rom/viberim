@@ -365,11 +365,12 @@ export class ExecutionSequence {
         const lokir = this._characters.lokir;
         if (lokir) {
           this._speak('lokir', 'No! I\'m not a rebel! You can\'t do this!', 'Lokir');
-          // After 2s, start running.
+          // After 2s, start running and captain shouts "Archers!".
           setTimeout(() => {
             if (lokir && !lokir._fallen) {
               lokir.walkTo(new THREE.Vector3(13, 0, -4), 4.0);
             }
+            this._speak('captain', 'Archers!', 'Captain');
           }, 2000);
           // After 4.5s, he's shot.
           setTimeout(() => {

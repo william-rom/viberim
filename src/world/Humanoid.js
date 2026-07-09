@@ -172,20 +172,20 @@ export class Humanoid {
       // Use a half-sphere section that covers from nose-down to chin.
       // SphereGeometry with phiStart/phiLength to get only the front half.
       const mask = new THREE.Mesh(
-        new THREE.SphereGeometry(0.122, 16, 10, Math.PI * 0.25, Math.PI * 0.5, Math.PI * 0.52, Math.PI * 0.33),
+        new THREE.SphereGeometry(0.122, 16, 10, Math.PI * 0.25, Math.PI * 0.5, Math.PI * 0.60, Math.PI * 0.30),
         maskMat
       );
       mask.scale.set(1.0, 1.15, 1.05);
-      mask.position.set(0, -0.035, 0.0);
+      mask.position.set(0, -0.06, 0.0);
       mask.castShadow = true;
       this.head.add(mask);
 
       // Nose bridge cover (thin strip from forehead to mask top).
       const bridge = new THREE.Mesh(
-        new THREE.BoxGeometry(0.035, 0.08, 0.06),
+        new THREE.BoxGeometry(0.035, 0.05, 0.06),
         maskMat
       );
-      bridge.position.set(0, 0.03, 0.09);
+      bridge.position.set(0, 0.0, 0.09);
       this.head.add(bridge);
 
       // Top edge of mask — a thin band to create a clean line across the face.
@@ -195,7 +195,7 @@ export class Humanoid {
       );
       topEdge.rotation.x = Math.PI / 2;
       topEdge.rotation.z = Math.PI;
-      topEdge.position.set(0, 0.005, 0);
+      topEdge.position.set(0, -0.025, 0);
       this.head.add(topEdge);
 
       // Strap across the back of the head.
@@ -204,7 +204,7 @@ export class Humanoid {
         new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.9 })
       );
       strap.rotation.x = Math.PI / 2;
-      strap.position.set(0, -0.03, 0);
+      strap.position.set(0, -0.055, 0);
       this.head.add(strap);
     }
 
