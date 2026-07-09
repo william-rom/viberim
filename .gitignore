@@ -1,0 +1,14 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Dev logs (browser log capture from vite plugin)
+.devlogs/
+
+# Editor / OS
+.DS_Store
+*.log
+.vscode/
+.idea/
