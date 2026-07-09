@@ -236,7 +236,7 @@ export class City {
     const houses = [
       { x: -16, z: 14, rot: Math.PI * 0.4, opts: { wallColor: 0xc4a878, roofColor: 0x5a2a18 } },
       { x: -10, z: 20, rot: Math.PI * 0.5, opts: { wallColor: 0xb89868, roofColor: 0x4a2a14 } },
-      { x: 4, z: 22, rot: Math.PI, opts: { wallColor: 0xbea870, roofColor: 0x6a2a18, floors: 2 } },
+      { x: -4, z: 22, rot: Math.PI, opts: { wallColor: 0xbea870, roofColor: 0x6a2a18, floors: 2 } },
       { x: 18, z: 22, rot: -Math.PI * 0.5, opts: { wallColor: 0xa89060, roofColor: 0x3a2a14 } },
     ];
     for (const h of houses) {
@@ -354,7 +354,7 @@ export class City {
         shirt: c.shirt, pants: 0x2a2418, skin: c.skin, hair: c.hair,
         hooded: c.hooded || false, beard: c.beard || false,
       });
-      npc.group.position.set(c.x, this.terrain.heightAt(c.x, c.z), c.z);
+      npc.group.position.set(c.x, this.terrain.heightAt(c.x, c.z) + npc.footOffset, c.z);
       npc.group.rotation.y = c.rot;
       this.group.add(npc.group);
       this.npcs.push({ humanoid: npc, baseX: c.x, baseZ: c.z, phase: Math.random() * 6, wander: Math.random() > 0.5 });
@@ -380,7 +380,7 @@ export class City {
         const wz = n.baseZ + Math.cos(t * 0.25 + n.phase) * 1.5;
         n.humanoid.group.position.x = wx;
         n.humanoid.group.position.z = wz;
-        n.humanoid.group.position.y = this.terrain.heightAt(wx, wz);
+        n.humanoid.group.position.y = this.terrain.heightAt(wx, wz) + n.humanoid.footOffset;
         n.humanoid.group.rotation.y = Math.atan2(wx - n.humanoid.group.position.x, wz - n.humanoid.group.position.z);
         n.humanoid.update(t + n.phase, { walking: true });
       } else {

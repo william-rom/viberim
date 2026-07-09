@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Humanoid } from '../world/Humanoid.js';
 import { Dragon } from '../world/Dragon.js';
+import { Input } from '../core/Input.js';
 import { clamp } from '../utils.js';
 
 // Cinematic execution sequence: cart stops → prisoners exit → Lokir flees →
@@ -24,6 +25,8 @@ const STATES = {
   PRE_DRAGON:      { dur: 3.5 },
   DRAGON_ARRIVES:  { dur: 7.0 },
   POST_DRAGON:     { dur: 4.0 },
+  DRAGON_ATTACK:   { dur: 999 }, // ends when player dies
+  PLAYER_DEATH:    { dur: 4.0 },
 };
 
 export class ExecutionSequence {
@@ -53,8 +56,31 @@ export class ExecutionSequence {
     this._camTransDur = 1;
     this._shakeAmount = 0;
 
+    // Player health (3 hits = death).
+    this._playerHealth = 3;
+    this._maxHealth = 3;
+    this._nextFireT = 0;
+    this._fireHitTimer = 0;
+
     this._characters = {};
     this._allHumanoids = [];
+
+    // Mouse look (limited — no pointer lock needed, just track mouse deltas).
+    this._userYaw = 0;
+    this._userPitch = 0;
+    this._lookSens = 0.003;
+    this._mouseEnabled = false;
+    this._onMouseMove = (e) => {
+      if (!this._mouseEnabled) return;
+      this._userYaw -= (e.movementX || 0) * this._lookSens;
+      this._userPitch -= (e.movementY || 0) * this._lookSens;
+      this._userPitch = clamp(this._userPitch, -0.8, 0.6);
+    };
+    this._onClick = () => {
+      if (!this.done) this.domElement.requestPointerLock();
+    };
+    this.domElement.addEventListener('mousemove', this._onMouseMove);
+    this.domElement.addEventListener('click', this._onClick);
 
     this._buildExecutionArea();
     this._buildDragon();
@@ -68,6 +94,11 @@ export class ExecutionSequence {
 
   _groundY(x, z) {
     return this.terrain.heightAt(x, z);
+  }
+
+  // Ground Y + foot offset so a standing humanoid's feet sit on the ground.
+  _standY(x, z, humanoid) {
+    return this._groundY(x, z) + (humanoid.footOffset || 0.32);
   }
 
   _buildExecutionArea() {
@@ -95,7 +126,7 @@ export class ExecutionSequence {
       shirt: 0x1a1a1a, pants: 0x0e0e0e, skin: 0xa87a5a, hair: 0x1a1208,
       hooded: true, height: 1.85,
     });
-    executioner.group.position.set(BLOCK.x - 1.5, this._groundY(BLOCK.x - 1.5, BLOCK.z + 1), BLOCK.z + 1);
+    executioner.group.position.set(BLOCK.x - 1.5, this._standY(BLOCK.x - 1.5, BLOCK.z + 1, executioner), BLOCK.z + 1);
     executioner.group.rotation.y = Math.PI; // facing the line
     this.scene.add(executioner.group);
     this._characters.executioner = executioner;
@@ -126,7 +157,7 @@ export class ExecutionSequence {
       shirt: 0x3a3a4a, pants: 0x2a2a32, skin: 0xc08a5e, hair: 0x2a1d12,
       beard: true, height: 1.78,
     });
-    captain.group.position.set(BLOCK.x + 1.5, this._groundY(BLOCK.x + 1.5, BLOCK.z + 0.5), BLOCK.z + 0.5);
+    captain.group.position.set(BLOCK.x + 1.5, this._standY(BLOCK.x + 1.5, BLOCK.z + 0.5, captain), BLOCK.z + 0.5);
     captain.group.rotation.y = Math.PI;
     this.scene.add(captain.group);
     this._characters.captain = captain;
@@ -137,7 +168,7 @@ export class ExecutionSequence {
       shirt: 0x4a4a5a, pants: 0x3a3a42, skin: 0xc0a080, hair: 0x5a4a3a,
       beard: true, height: 1.80,
     });
-    tullius.group.position.set(BLOCK.x - 2.5, this._groundY(BLOCK.x - 2.5, BLOCK.z + 2), BLOCK.z + 2);
+    tullius.group.position.set(BLOCK.x - 2.5, this._standY(BLOCK.x - 2.5, BLOCK.z + 2, tullius), BLOCK.z + 2);
     tullius.group.rotation.y = Math.PI * 0.9;
     this.scene.add(tullius.group);
     this._characters.tullius = tullius;
@@ -148,7 +179,7 @@ export class ExecutionSequence {
       shirt: 0x4a3a2a, pants: 0x2a2418, skin: 0xb88a5e, hair: 0x3a2a1a,
       beard: true, bound: true, height: 1.72,
     });
-    prisoner1.group.position.set(LINE_POS.x + 1, this._groundY(LINE_POS.x + 1, LINE_POS.z), LINE_POS.z);
+    prisoner1.group.position.set(LINE_POS.x + 1, this._standY(LINE_POS.x + 1, LINE_POS.z, prisoner1), LINE_POS.z);
     prisoner1.group.rotation.y = 0;
     this.scene.add(prisoner1.group);
     this._characters.prisoner1 = prisoner1;
@@ -168,7 +199,7 @@ export class ExecutionSequence {
         shirt: 0x3a3a4a, pants: 0x2a2a32, skin: 0xc08a5e, hair: 0x1a1208,
         hooded: true, height: 1.78,
       });
-      soldier.group.position.set(x, this._groundY(x, z), z);
+      soldier.group.position.set(x, this._standY(x, z, soldier), z);
       soldier.group.rotation.y = rot;
       this.scene.add(soldier.group);
       this._soldiers.push(soldier);
@@ -187,7 +218,7 @@ export class ExecutionSequence {
         shirt: c.shirt, pants: 0x2a2418, skin: c.skin, hair: c.hair,
         beard: c.beard || false,
       });
-      v.group.position.set(c.x, this._groundY(c.x, c.z), c.z);
+      v.group.position.set(c.x, this._standY(c.x, c.z, v), c.z);
       v.group.rotation.y = c.rot;
       this.scene.add(v.group);
       this._villagers.push(v);
@@ -212,7 +243,7 @@ export class ExecutionSequence {
     if (chars.ralof) {
       this._detachFromCart(chars.ralof);
       chars.ralof.group.position.set(
-        LINE_POS.x, this._groundY(LINE_POS.x, LINE_POS.z), LINE_POS.z
+        LINE_POS.x, this._standY(LINE_POS.x, LINE_POS.z, chars.ralof), LINE_POS.z
       );
       chars.ralof.group.rotation.y = 0;
       chars.ralof._sitting = false;
@@ -226,7 +257,7 @@ export class ExecutionSequence {
     if (chars.ulfric) {
       this._detachFromCart(chars.ulfric);
       chars.ulfric.group.position.set(
-        BLOCK.x - 3.5, this._groundY(BLOCK.x - 3.5, BLOCK.z + 2), BLOCK.z + 2
+        BLOCK.x - 3.5, this._standY(BLOCK.x - 3.5, BLOCK.z + 2, chars.ulfric), BLOCK.z + 2
       );
       chars.ulfric.group.rotation.y = Math.PI * 0.9;
       chars.ulfric._sitting = false;
@@ -240,7 +271,7 @@ export class ExecutionSequence {
     if (chars.lokir) {
       this._detachFromCart(chars.lokir);
       chars.lokir.group.position.set(
-        LINE_POS.x + 2, this._groundY(LINE_POS.x + 2, LINE_POS.z), LINE_POS.z
+        LINE_POS.x + 2, this._standY(LINE_POS.x + 2, LINE_POS.z, chars.lokir), LINE_POS.z
       );
       chars.lokir.group.rotation.y = 0;
       chars.lokir._sitting = false;
@@ -295,6 +326,14 @@ export class ExecutionSequence {
     return new THREE.Vector3(x, this._groundY(x, z) + 1.7, z);
   }
 
+  destroy() {
+    this.domElement.removeEventListener('mousemove', this._onMouseMove);
+    this.domElement.removeEventListener('click', this._onClick);
+    if (document.pointerLockElement === this.domElement) {
+      document.exitPointerLock();
+    }
+  }
+
   _enterState(state) {
     this.state = state;
     this.stateTime = 0;
@@ -318,6 +357,8 @@ export class ExecutionSequence {
         const standPos = this._standingCamPos(8, 3);
         const standLook = new THREE.Vector3(BLOCK.x, this._groundY(BLOCK.x, BLOCK.z) + 1.0, BLOCK.z);
         this._setCamTrans(cartPos, cartLook, standPos, standLook, 2.0);
+        // Enable mouse look after transition.
+        setTimeout(() => { this._mouseEnabled = true; }, 2000);
         break;
       }
       case 'CAPTAIN_ORDERS': {
@@ -340,7 +381,7 @@ export class ExecutionSequence {
           // After 4.5s, he's shot.
           setTimeout(() => {
             if (lokir && !lokir._fallen) {
-              lokir._fallenGroundY = this._groundY(lokir.group.position.x, lokir.group.position.z);
+              lokir._fallenGroundY = this._groundY(lokir.group.position.x, lokir.group.position.z) + (lokir.footOffset || 0.32);
               lokir.fall();
             }
           }, 4500);
@@ -406,24 +447,50 @@ export class ExecutionSequence {
       }
       case 'DRAGON_ARRIVES': {
         // Dragon flies in from the distance and lands on the tower.
+        // Dragon is 3x scaled, so land higher up.
         const towerTop = new THREE.Vector3(
           TOWER_POS.x,
-          this._groundY(TOWER_POS.x, TOWER_POS.z) + 11,
+          this._groundY(TOWER_POS.x, TOWER_POS.z) + 14,
           TOWER_POS.z
         );
-        const startPos = new THREE.Vector3(-60, 35, -40);
+        // Come from high and far, arcing over the courtyard.
+        const startPos = new THREE.Vector3(-80, 50, -60);
         this.dragon.flyTo(startPos, towerTop, 5.0);
         this._shakeAmount = 0;
         // After landing, roar.
         setTimeout(() => {
           this.dragon.roar();
-          this._shakeAmount = 0.8;
+          this._shakeAmount = 1.0;
         }, 5200);
         break;
       }
       case 'POST_DRAGON': {
-        // Brief dialogue, then transition.
+        // Brief dialogue, then dragon starts attacking.
         this._speak('ralof', 'We need to get out of here, come on!', 'Ralof');
+        break;
+      }
+      case 'DRAGON_ATTACK': {
+        // Show health bar. Dragon will breathe fire at player repeatedly.
+        const hb = document.getElementById('health-bar');
+        if (hb) hb.style.display = 'block';
+        this._updateHealthBar();
+        this._nextFireT = 2.0; // first fire breath in 2s
+        break;
+      }
+      case 'PLAYER_DEATH': {
+        // Hide health bar, show game over screen after a beat.
+        const hb = document.getElementById('health-bar');
+        if (hb) hb.style.display = 'none';
+        // Screen shake + fade.
+        this._shakeAmount = 1.5;
+        const fade = document.getElementById('fade');
+        fade.style.transition = 'opacity 2s ease-in';
+        fade.style.opacity = '1';
+        fade.style.display = 'block';
+        setTimeout(() => {
+          const go = document.getElementById('game-over');
+          if (go) go.style.display = 'flex';
+        }, 2500);
         break;
       }
     }
@@ -469,6 +536,61 @@ export class ExecutionSequence {
       if (this._shakeAmount < 0.01) this._shakeAmount = 0;
     }
 
+    // --- Dragon attack logic ---
+    if (this.state === 'DRAGON_ATTACK') {
+      this._nextFireT -= dt;
+      if (this._nextFireT <= 0) {
+        // Breathe fire at the player (camera position).
+        const playerPos = new THREE.Vector3();
+        this.camera.getWorldPosition(playerPos);
+        playerPos.y += 0.5;
+        this.dragon.breatheFire(playerPos);
+        this._nextFireT = 3.5; // next fire breath
+        this._fireHitTimer = 1.2; // fire takes 1.2s to reach player
+      }
+      // When fire hits the player, decrement health.
+      if (this._fireHitTimer > 0) {
+        this._fireHitTimer -= dt;
+        if (this._fireHitTimer <= 0) {
+          this._playerHealth--;
+          this._updateHealthBar();
+          this._shakeAmount = 0.6;
+          // Flash screen red.
+          const fade = document.getElementById('fade');
+          if (fade) {
+            fade.style.transition = 'opacity 0.15s ease';
+            fade.style.opacity = '0.4';
+            fade.style.display = 'block';
+            setTimeout(() => {
+              fade.style.transition = 'opacity 0.5s ease';
+              fade.style.opacity = '0';
+              setTimeout(() => { fade.style.display = 'none'; }, 600);
+            }, 150);
+          }
+          if (this._playerHealth <= 0) {
+            // Player dies.
+            this._enterState('PLAYER_DEATH');
+          }
+        }
+      }
+    }
+
+    // --- Player death: camera ragdoll fall ---
+    if (this.state === 'PLAYER_DEATH') {
+      // Tilt camera and drop to ground.
+      const deathT = this.stateTime;
+      const fallProgress = clamp(deathT / 2.0, 0, 1);
+      const fallEased = fallProgress * fallProgress;
+      this.camera.rotation.z = fallEased * 1.2;
+      this.camera.rotation.x = fallEased * 0.8;
+      // Drop camera height.
+      const groundY = this._groundY(this.camera.position.x, this.camera.position.z);
+      const targetY = groundY + 0.3;
+      this.camera.position.y = this._camToPos.y + (targetY - this._camToPos.y) * fallEased;
+      // Extra shake.
+      this._shakeAmount = Math.max(this._shakeAmount, 0.4 * (1 - fallProgress));
+    }
+
     // State timer.
     const stateCfg = STATES[this.state];
     if (stateCfg && this.stateTime >= stateCfg.dur) {
@@ -487,35 +609,92 @@ export class ExecutionSequence {
       'CART_STOP', 'EXIT_CART', 'CAPTAIN_ORDERS', 'LOKIR_FLEES',
       'RESUME', 'FIRST_EXEC', 'PLAYER_CALLED', 'PLAYER_WALKS',
       'PLAYER_KNEELS', 'PRE_DRAGON', 'DRAGON_ARRIVES', 'POST_DRAGON',
+      'DRAGON_ATTACK', 'PLAYER_DEATH',
     ];
     const idx = order.indexOf(state);
     if (idx < 0 || idx >= order.length - 1) return null;
     return order[idx + 1];
   }
 
+  _updateHealthBar() {
+    const fill = document.querySelector('#health-bar .health-fill');
+    if (fill) {
+      fill.style.width = (this._playerHealth / this._maxHealth * 100) + '%';
+    }
+  }
+
   _updateStateCamera(dt) {
-    // During states without active transitions, hold the camera at the last
-    // target position, but allow subtle sway for life.
     const sway = Math.sin(this.elapsed * 0.7) * 0.03;
     const nod = Math.sin(this.elapsed * 1.5) * 0.015;
+
+    // States where the player is standing and can look around with mouse.
+    const standingStates = ['CAPTAIN_ORDERS', 'LOKIR_FLEES', 'RESUME', 'FIRST_EXEC', 'PLAYER_CALLED'];
 
     switch (this.state) {
       case 'CART_STOP': {
         // Keep camera in cart — let cart seq camera stay.
         break;
       }
-      case 'CAPTAIN_ORDERS':
-      case 'LOKIR_FLEES':
-      case 'RESUME':
-      case 'FIRST_EXEC':
-      case 'PLAYER_CALLED': {
-        // Standing view of the execution area, with subtle sway.
+      case 'LOKIR_FLEES': {
+        // Camera follows Lokir as he runs, but allow mouse look too.
         this.camera.position.x = this._camToPos.x + sway;
         this.camera.position.y = this._camToPos.y + nod;
         this.camera.position.z = this._camToPos.z;
-        // Look at block area.
+
+        const lokir = this._characters.lokir;
+        if (lokir && !lokir._fallen) {
+          // Track Lokir's position.
+          const lokirPos = new THREE.Vector3();
+          lokir.group.getWorldPosition(lokirPos);
+          lokirPos.y += 1.2;
+          // Blend between block view and Lokir tracking.
+          const baseLook = new THREE.Vector3(BLOCK.x, this._groundY(BLOCK.x, BLOCK.z) + 1.0, BLOCK.z);
+          const trackLook = lokirPos;
+          // As Lokir moves further away, weight toward tracking.
+          const dist = lokir.group.position.distanceTo(this._camToPos);
+          const trackWeight = clamp((dist - 4) / 6, 0, 1);
+          const lookTarget = baseLook.lerp(trackLook, trackWeight);
+
+          // Apply mouse look as an offset on top of tracking.
+          if (this._mouseEnabled && this._userYaw !== 0) {
+            this.camera.rotation.order = 'YXZ';
+            this.camera.lookAt(lookTarget);
+            this.camera.rotation.y += this._userYaw;
+            this.camera.rotation.x += this._userPitch;
+          } else {
+            this.camera.lookAt(lookTarget);
+          }
+        } else if (lokir && lokir._fallen) {
+          // Look at Lokir's fallen body.
+          const fallenPos = new THREE.Vector3();
+          lokir.group.getWorldPosition(fallenPos);
+          fallenPos.y += 0.3;
+          this.camera.lookAt(fallenPos);
+        }
+        break;
+      }
+      case 'CAPTAIN_ORDERS':
+      case 'RESUME':
+      case 'FIRST_EXEC':
+      case 'PLAYER_CALLED': {
+        // Standing view of the execution area with mouse look.
+        this.camera.position.x = this._camToPos.x + sway;
+        this.camera.position.y = this._camToPos.y + nod;
+        this.camera.position.z = this._camToPos.z;
+
         const lookY = this._groundY(BLOCK.x, BLOCK.z) + 1.0;
-        this.camera.lookAt(BLOCK.x + sway, lookY, BLOCK.z);
+        const baseLookX = BLOCK.x + sway;
+        const baseLookZ = BLOCK.z;
+
+        if (this._mouseEnabled) {
+          // Apply mouse look as yaw/pitch offset from base look direction.
+          this.camera.lookAt(baseLookX, lookY, baseLookZ);
+          this.camera.rotation.order = 'YXZ';
+          this.camera.rotation.y += this._userYaw;
+          this.camera.rotation.x += this._userPitch;
+        } else {
+          this.camera.lookAt(baseLookX, lookY, baseLookZ);
+        }
         break;
       }
       case 'PLAYER_WALKS': {
@@ -524,19 +703,22 @@ export class ExecutionSequence {
       }
       case 'PLAYER_KNEELS':
       case 'PRE_DRAGON': {
-        // Kneeling view, look at block / slightly up.
+        // Disable mouse look during kneeling.
+        this._mouseEnabled = false;
         this.camera.position.x = this._camToPos.x + sway * 0.5;
         this.camera.position.y = this._camToPos.y;
         this.camera.position.z = this._camToPos.z;
         const lookY = this.state === 'PRE_DRAGON'
-          ? this._groundY(TOWER_POS.x, TOWER_POS.z) + 8
+          ? this._groundY(TOWER_POS.x, TOWER_POS.z) + 12
           : this._groundY(BLOCK.x, BLOCK.z) + 0.3;
         const lookZ = this.state === 'PRE_DRAGON' ? TOWER_POS.z : BLOCK.z;
         const lookX = this.state === 'PRE_DRAGON' ? TOWER_POS.x : BLOCK.x;
         this.camera.lookAt(lookX, lookY, lookZ);
         break;
       }
-      case 'DRAGON_ARRIVES': {
+      case 'DRAGON_ARRIVES':
+      case 'POST_DRAGON':
+      case 'DRAGON_ATTACK': {
         // Look up at the dragon on the tower.
         this.camera.position.x = this._camToPos.x + sway * 0.3;
         this.camera.position.y = this._camToPos.y;
@@ -545,13 +727,8 @@ export class ExecutionSequence {
         this.camera.lookAt(dragonPos.x, dragonPos.y, dragonPos.z);
         break;
       }
-      case 'POST_DRAGON': {
-        // Same as dragon arrives.
-        this.camera.position.x = this._camToPos.x + sway * 0.3;
-        this.camera.position.y = this._camToPos.y;
-        this.camera.position.z = this._camToPos.z;
-        const dragonPos = this.dragon.group.position;
-        this.camera.lookAt(dragonPos.x, dragonPos.y, dragonPos.z);
+      case 'PLAYER_DEATH': {
+        // Camera is handled by death fall logic in update().
         break;
       }
     }

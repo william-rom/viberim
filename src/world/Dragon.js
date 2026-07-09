@@ -39,6 +39,9 @@ export class Dragon {
     this._buildTail(matBody);
     this._buildLegs(matBody);
 
+    // Scale up 3x for an imposing presence.
+    this.group.scale.setScalar(3.0);
+
     // Start hidden (revealed when flight begins).
     this.group.visible = false;
   }
@@ -317,15 +320,78 @@ export class Dragon {
     this._flightDur = duration;
     this._flightStart = startPos.clone();
     this._flightEnd = endPos.clone();
-    // Mid-point for arc trajectory.
+    // Mid-point for arc trajectory — always higher than both endpoints.
     this._flightMid = startPos.clone().lerp(endPos, 0.5);
-    this._flightMid.y += 8; // arc upward
+    this._flightMid.y = Math.max(startPos.y, endPos.y) + 12;
     this.group.visible = true;
     this.group.position.copy(startPos);
   }
 
   roar() {
-    this._roarT = 2.0; // seconds of roar animation
+    this._roarT = 2.0;
+  }
+
+  breatheFire(targetPos = null) {
+    this._fireT = 1.5;
+    this._fireTarget = targetPos ? targetPos.clone() : null;
+    if (!this._fireParticles) {
+      this._buildFireBreath();
+    }
+  }
+
+  _buildFireBreath() {
+    const count = 200;
+    const positions = new Float32Array(count * 3);
+    const lives = new Float32Array(count);
+    const sizes = new Float32Array(count);
+    for (let i = 0; i < count; i++) {
+      lives[i] = Math.random();
+      sizes[i] = 0.5 + Math.random() * 0.8;
+      positions[i * 3] = 0;
+      positions[i * 3 + 1] = 0;
+      positions[i * 3 + 2] = 0;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+    geo.setAttribute('life', new THREE.BufferAttribute(lives, 1));
+
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { pixelRatio: { value: Math.min(window.devicePixelRatio, 1.75) } },
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      vertexShader: `
+        attribute float size;
+        attribute float life;
+        uniform float pixelRatio;
+        varying float vLife;
+        void main() {
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          gl_PointSize = size * 300.0 * pixelRatio / -mv.z;
+          gl_Position = projectionMatrix * mv;
+          vLife = life;
+        }
+      `,
+      fragmentShader: `
+        varying float vLife;
+        void main() {
+          vec2 c = gl_PointCoord - 0.5;
+          float d = length(c);
+          if (d > 0.5) discard;
+          float a = smoothstep(0.5, 0.0, d) * (1.0 - vLife) * 0.9;
+          vec3 col = mix(vec3(1.0, 0.9, 0.3), vec3(0.8, 0.2, 0.05), vLife);
+          gl_FragColor = vec4(col, a);
+        }
+      `,
+    });
+
+    this._fireParticles = new THREE.Points(geo, mat);
+    this._fireParticles.frustumCulled = false;
+    this._fireCount = count;
+    // Attach to head so it comes from the mouth.
+    this.head.add(this._fireParticles);
+    this._fireParticles.position.set(0.6, -0.15, 0);
   }
 
   update(t, dt) {
@@ -360,7 +426,7 @@ export class Dragon {
         this._flying = false;
         this._perched = true;
         this.group.rotation.x = 0;
-        this.group.rotation.y = Math.PI; // face the courtyard
+        this.group.rotation.y = 0; // face the courtyard (toward -Z / toward player)
       }
       return;
     }
@@ -400,6 +466,51 @@ export class Dragon {
       // Reset head/jaw after roar.
       this.head.rotation.x *= 0.9;
       this.lowerJaw.rotation.x *= 0.9;
+    }
+
+    // Fire breath animation.
+    if (this._fireT > 0) {
+      this._fireT -= dt;
+      // Keep jaw open during fire.
+      this.lowerJaw.rotation.x = 0.4;
+      // Aim head toward fire target.
+      if (this._fireTarget) {
+        const headWorld = new THREE.Vector3();
+        this.head.getWorldPosition(headWorld);
+        const dx = this._fireTarget.x - headWorld.x;
+        const dy = this._fireTarget.y - headWorld.y;
+        const dz = this._fireTarget.z - headWorld.z;
+        // Compute local-space direction (account for group rotation).
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        const targetYaw = Math.atan2(dx, dz);
+        const targetPitch = Math.atan2(-dy, dist);
+        // Smoothly aim.
+        let dyaw = targetYaw - this.group.rotation.y;
+        while (dyaw > Math.PI) dyaw -= Math.PI * 2;
+        while (dyaw < -Math.PI) dyaw += Math.PI * 2;
+        this.group.rotation.y += dyaw * 0.05;
+        this.head.rotation.x += (targetPitch * 0.7 - this.head.rotation.x) * 0.05;
+      }
+      // Update fire particles — travel forward from mouth in local +X.
+      if (this._fireParticles) {
+        const pos = this._fireParticles.geometry.attributes.position.array;
+        const lives = this._fireParticles.geometry.attributes.life.array;
+        for (let i = 0; i < this._fireCount; i++) {
+          lives[i] += dt * 1.2;
+          if (lives[i] >= 1) {
+            lives[i] = 0;
+            pos[i * 3] = 0;
+            pos[i * 3 + 1] = 0;
+            pos[i * 3 + 2] = 0;
+          }
+          // Travel forward (+X is the dragon's forward / mouth direction).
+          pos[i * 3] += dt * 12;
+          pos[i * 3 + 1] += (Math.random() - 0.4) * dt * 3;
+          pos[i * 3 + 2] += (Math.random() - 0.5) * dt * 3;
+        }
+        this._fireParticles.geometry.attributes.position.needsUpdate = true;
+        this._fireParticles.geometry.attributes.life.needsUpdate = true;
+      }
     }
   }
 }

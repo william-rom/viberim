@@ -59,8 +59,13 @@ export class Terrain {
     const mountain = smoothstep(this.mountainStart, this.mountainFull, d);
     const rolling = this._fbm(x, z, 4, 0.006, 0.5);
     const ridge = this._ridged(x, z, 5, 0.0045, 0.55);
-    // Combine: gentle rolling hills near town, sharp ridged peaks far out.
     const farShape = ridge * 0.8 + rolling * 0.2;
+    // Flatten terrain within the city basin for consistent ground level.
+    if (d < this.cityRadius) {
+      const blend = smoothstep(this.cityRadius - 8, this.cityRadius, d);
+      const h = 0 * (1 - blend) + (rolling * 6) * blend + farShape * this.amp * mountain;
+      return h;
+    }
     const h = this.baseHeight + rolling * 6 * (1 - mountain) + farShape * this.amp * mountain;
     return h;
   }

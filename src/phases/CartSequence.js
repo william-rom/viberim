@@ -62,7 +62,7 @@ export class CartSequence {
     // height so the path sits on the ground.
     const pts = [
       [-120, 8], [-95, -40], [-70, -90], [-30, -120],
-      [10, -110], [25, -70], [18, -30], [10, 0],
+      [10, -110], [20, -80], [18, -40], [14, -6],
     ];
     const vec3pts = pts.map(([x, z]) => {
       const y = this.terrain.heightAt(x, z);
@@ -118,7 +118,7 @@ export class CartSequence {
 
     // Open gate doors as cart approaches (last 12% of the ride).
     if (this.onGateProgress) {
-      const gateT = smoothstep(0.88, 1.0, u);
+      const gateT = smoothstep(0.72, 0.92, u);
       this.onGateProgress(gateT);
     }
 

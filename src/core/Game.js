@@ -248,7 +248,7 @@ export class Game {
       this.scene, this.terrain, this.camera,
       this.cartSequence, this.city, this.voice, canvas
     );
-    this.execSequence.onComplete = () => this._onExecutionDone();
+    this.execSequence.onComplete = () => this._onPlayerDeath();
 
     this._update = (dt) => {
       this.execSequence.update(dt);
@@ -257,38 +257,19 @@ export class Game {
     };
   }
 
-  _onExecutionDone() {
-    this.state = 'CITY_EXPLORE';
-    const canvas = this.renderer.renderer.domElement;
-
-    // Clean up cart input.
-    if (this.cartSequence) this.cartSequence.destroy();
-
-    // Force-hide overlays.
-    for (const id of ['fade', 'start', 'loading', 'title-card', 'explore-prompt']) {
-      const el = document.getElementById(id);
-      if (el) { el.style.display = 'none'; el.style.opacity = '0'; }
+  _onPlayerDeath() {
+    this.state = 'GAME_OVER';
+    // Game over screen is already shown by ExecutionSequence.
+    // Click to restart.
+    const go = document.getElementById('game-over');
+    if (go) {
+      go.addEventListener('click', () => {
+        window.location.reload();
+      }, { once: true });
     }
-
-    this.cityExplore = new CityExplore(
-      this.scene, this.terrain, this.camera, this.city, canvas
-    );
-
-    // Spawn near the execution block (where the player was kneeling).
-    this.cityExplore.spawn(BLOCK.x + 0.5, BLOCK.z - 1, Math.PI);
-    this.cityExplore.input.requestLock();
-
-    const hud = document.getElementById('hud');
-    hud.style.opacity = '1';
-
-    canvas.addEventListener('click', () => {
-      if (this.state === 'CITY_EXPLORE' && !this.cityExplore.input.locked) {
-        this.cityExplore.input.requestLock();
-      }
-    });
-
+    // Stop updating — just let the dragon idle.
     this._update = (dt) => {
-      this.cityExplore.update(dt);
+      if (this.execSequence) this.execSequence.dragon.update(this.elapsed, dt);
     };
   }
 

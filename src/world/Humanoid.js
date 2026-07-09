@@ -164,55 +164,47 @@ export class Humanoid {
 
     // --- Facemask (3D cloth over lower face) ---
     if (facemask && !bagged) {
-      // Build a custom cloth mask that hugs the lower face (nose-down to chin).
-      // Uses a LatheGeometry to create a contoured band that wraps the jaw.
-      const maskPoints = [];
-      const maskSegs = 10;
-      for (let i = 0; i <= maskSegs; i++) {
-        const t = i / maskSegs;
-        // Profile from top of mask (just under nose) curving down to chin.
-        const y = -0.02 - t * 0.11;         // vertical: -0.02 to -0.13
-        const r = 0.118 - t * t * 0.03;      // radius tapers toward chin
-        const z = 0.108 - t * t * 0.04;      // shifts back slightly at chin
-        maskPoints.push(new THREE.Vector2(r, y));
-      }
-      const maskGeo = new THREE.LatheGeometry(maskPoints, 20);
-      // Only keep the front-facing portion (clip the back half).
-      const maskPos = maskGeo.attributes.position;
-      const maskIdx = [];
-      for (let i = 0; i < maskPos.count; i += 3) {
-        // Triangle vertices
-        const z0 = maskPos.getZ(i), z1 = maskPos.getZ(i + 1), z2 = maskPos.getZ(i + 2);
-        if (z0 > -0.02 || z1 > -0.02 || z2 > -0.02) {
-          maskIdx.push(i, i + 1, i + 2);
-        }
-      }
-      maskGeo.setIndex(maskIdx);
-      maskGeo.computeVertexNormals();
-
       const maskMat = new THREE.MeshStandardMaterial({
         color: 0x1a1a1a, roughness: 0.95, metalness: 0.0,
-        side: THREE.DoubleSide,
+        side: THREE.DoubleSide, flatShading: true,
       });
-      const mask = new THREE.Mesh(maskGeo, maskMat);
-      mask.position.z = 0.0;
-      this.head.add(mask);
 
-      // Nose bridge strip (thin box over the nose).
-      const bridge = new THREE.Mesh(
-        new THREE.BoxGeometry(0.03, 0.06, 0.12),
+      // Use a half-sphere section that covers from nose-down to chin.
+      // SphereGeometry with phiStart/phiLength to get only the front half.
+      const mask = new THREE.Mesh(
+        new THREE.SphereGeometry(0.122, 16, 10, Math.PI * 0.25, Math.PI * 0.5, Math.PI * 0.52, Math.PI * 0.33),
         maskMat
       );
-      bridge.position.set(0, 0.0, 0.10);
+      mask.scale.set(1.0, 1.15, 1.05);
+      mask.position.set(0, -0.035, 0.0);
+      mask.castShadow = true;
+      this.head.add(mask);
+
+      // Nose bridge cover (thin strip from forehead to mask top).
+      const bridge = new THREE.Mesh(
+        new THREE.BoxGeometry(0.035, 0.08, 0.06),
+        maskMat
+      );
+      bridge.position.set(0, 0.03, 0.09);
       this.head.add(bridge);
+
+      // Top edge of mask — a thin band to create a clean line across the face.
+      const topEdge = new THREE.Mesh(
+        new THREE.TorusGeometry(0.118, 0.008, 4, 16, Math.PI),
+        maskMat
+      );
+      topEdge.rotation.x = Math.PI / 2;
+      topEdge.rotation.z = Math.PI;
+      topEdge.position.set(0, 0.005, 0);
+      this.head.add(topEdge);
 
       // Strap across the back of the head.
       const strap = new THREE.Mesh(
-        new THREE.TorusGeometry(0.115, 0.012, 6, 20),
-        new THREE.MeshStandardMaterial({ color: 0x0e0e0e, roughness: 0.9 })
+        new THREE.TorusGeometry(0.115, 0.01, 4, 16),
+        new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.9 })
       );
       strap.rotation.x = Math.PI / 2;
-      strap.position.set(0, -0.02, 0);
+      strap.position.set(0, -0.03, 0);
       this.head.add(strap);
     }
 
@@ -635,24 +627,26 @@ export class Humanoid {
     hairTop.castShadow = true;
     this.head.add(hairTop);
     // Long flowing hair down the back and sides.
-    for (const side of [-1, 0, 1]) {
+    for (const side of [-1, -0.5, 0, 0.5, 1]) {
       const lock = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.05, 0.03, 0.35, 8),
+        new THREE.CylinderGeometry(0.04, 0.02, 0.40, 6),
         matHair
       );
-      lock.position.set(side * 0.06, -0.15, -0.06);
-      lock.rotation.z = side * 0.1;
+      lock.position.set(side * 0.08, -0.16, -0.05);
+      lock.rotation.z = side * 0.15;
+      lock.rotation.x = -0.1;
       lock.castShadow = true;
       this.head.add(lock);
     }
-    // Back mane.
-    const mane = new THREE.Mesh(
-      new THREE.BoxGeometry(0.14, 0.30, 0.04),
-      matHair
-    );
-    mane.position.set(0, -0.12, -0.10);
-    mane.castShadow = true;
-    this.head.add(mane);
+    // Sideburns connecting hair to jaw.
+    for (const side of [-1, 1]) {
+      const burn = new THREE.Mesh(
+        new THREE.BoxGeometry(0.03, 0.12, 0.04),
+        matHair
+      );
+      burn.position.set(side * 0.11, -0.02, 0.04);
+      this.head.add(burn);
+    }
   }
 
   lookAt(point) {
@@ -700,6 +694,12 @@ export class Humanoid {
       this._standingUp = true;
       this._standUpProgress = 0;
     }
+  }
+
+  // Y offset to place feet on ground when group origin is at this Y.
+  get footOffset() {
+    const h = this.height || 1.75;
+    return h * 0.18 + 0.035; // hip height + half boot thickness
   }
 
   update(t, opts = {}) {

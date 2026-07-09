@@ -280,7 +280,6 @@ export class Cart {
       pants: 0x2a2418,
       skin: 0xc98a5e,
       hair: 0x3a2a1a,
-      beard: true,
       height: 1.78,
       sitting: true,
     });
