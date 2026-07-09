@@ -25,8 +25,6 @@ const STATES = {
   PRE_DRAGON:      { dur: 3.5 },
   DRAGON_ARRIVES:  { dur: 7.0 },
   POST_DRAGON:     { dur: 4.0 },
-  DRAGON_ATTACK:   { dur: 999 }, // ends when player dies
-  PLAYER_DEATH:    { dur: 4.0 },
 };
 
 export class ExecutionSequence {
@@ -45,6 +43,7 @@ export class ExecutionSequence {
     this.elapsed = 0;
     this.done = false;
     this.onComplete = null;
+    this.onDragonLand = null;
 
     this._camPos = new THREE.Vector3();
     this._camLook = new THREE.Vector3();
@@ -55,12 +54,6 @@ export class ExecutionSequence {
     this._camTransT = 0;
     this._camTransDur = 1;
     this._shakeAmount = 0;
-
-    // Player health (3 hits = death).
-    this._playerHealth = 3;
-    this._maxHealth = 3;
-    this._nextFireT = 0;
-    this._fireHitTimer = 0;
 
     this._characters = {};
     this._allHumanoids = [];
@@ -461,36 +454,13 @@ export class ExecutionSequence {
         setTimeout(() => {
           this.dragon.roar();
           this._shakeAmount = 1.0;
+          if (this.onDragonLand) this.onDragonLand();
         }, 5200);
         break;
       }
       case 'POST_DRAGON': {
-        // Brief dialogue, then dragon starts attacking.
+        // Brief dialogue, then transition to free-roam.
         this._speak('ralof', 'We need to get out of here, come on!', 'Ralof');
-        break;
-      }
-      case 'DRAGON_ATTACK': {
-        // Show health bar. Dragon will breathe fire at player repeatedly.
-        const hb = document.getElementById('health-bar');
-        if (hb) hb.style.display = 'block';
-        this._updateHealthBar();
-        this._nextFireT = 2.0; // first fire breath in 2s
-        break;
-      }
-      case 'PLAYER_DEATH': {
-        // Hide health bar, show game over screen after a beat.
-        const hb = document.getElementById('health-bar');
-        if (hb) hb.style.display = 'none';
-        // Screen shake + fade.
-        this._shakeAmount = 1.5;
-        const fade = document.getElementById('fade');
-        fade.style.transition = 'opacity 2s ease-in';
-        fade.style.opacity = '1';
-        fade.style.display = 'block';
-        setTimeout(() => {
-          const go = document.getElementById('game-over');
-          if (go) go.style.display = 'flex';
-        }, 2500);
         break;
       }
     }
@@ -521,6 +491,11 @@ export class ExecutionSequence {
       const u = clamp(this._camTransT / this._camTransDur, 0, 1);
       const e = u * u * (3 - 2 * u);
       this.camera.position.lerpVectors(this._camFromPos, this._camToPos, e);
+      // Prevent floor clipping: keep camera above terrain during transition.
+      const groundY = this._groundY(this.camera.position.x, this.camera.position.z);
+      if (this.camera.position.y < groundY + 1.5) {
+        this.camera.position.y = groundY + 1.5;
+      }
       const look = new THREE.Vector3().lerpVectors(this._camFromLook, this._camToLook, e);
       this.camera.lookAt(look);
     } else {
@@ -534,61 +509,6 @@ export class ExecutionSequence {
       this.camera.position.y += (Math.random() - 0.5) * this._shakeAmount;
       this._shakeAmount *= 0.95;
       if (this._shakeAmount < 0.01) this._shakeAmount = 0;
-    }
-
-    // --- Dragon attack logic ---
-    if (this.state === 'DRAGON_ATTACK') {
-      this._nextFireT -= dt;
-      if (this._nextFireT <= 0) {
-        // Breathe fire at the player (camera position).
-        const playerPos = new THREE.Vector3();
-        this.camera.getWorldPosition(playerPos);
-        playerPos.y += 0.5;
-        this.dragon.breatheFire(playerPos);
-        this._nextFireT = 3.5; // next fire breath
-        this._fireHitTimer = 1.2; // fire takes 1.2s to reach player
-      }
-      // When fire hits the player, decrement health.
-      if (this._fireHitTimer > 0) {
-        this._fireHitTimer -= dt;
-        if (this._fireHitTimer <= 0) {
-          this._playerHealth--;
-          this._updateHealthBar();
-          this._shakeAmount = 0.6;
-          // Flash screen red.
-          const fade = document.getElementById('fade');
-          if (fade) {
-            fade.style.transition = 'opacity 0.15s ease';
-            fade.style.opacity = '0.4';
-            fade.style.display = 'block';
-            setTimeout(() => {
-              fade.style.transition = 'opacity 0.5s ease';
-              fade.style.opacity = '0';
-              setTimeout(() => { fade.style.display = 'none'; }, 600);
-            }, 150);
-          }
-          if (this._playerHealth <= 0) {
-            // Player dies.
-            this._enterState('PLAYER_DEATH');
-          }
-        }
-      }
-    }
-
-    // --- Player death: camera ragdoll fall ---
-    if (this.state === 'PLAYER_DEATH') {
-      // Tilt camera and drop to ground.
-      const deathT = this.stateTime;
-      const fallProgress = clamp(deathT / 2.0, 0, 1);
-      const fallEased = fallProgress * fallProgress;
-      this.camera.rotation.z = fallEased * 1.2;
-      this.camera.rotation.x = fallEased * 0.8;
-      // Drop camera height.
-      const groundY = this._groundY(this.camera.position.x, this.camera.position.z);
-      const targetY = groundY + 0.3;
-      this.camera.position.y = this._camToPos.y + (targetY - this._camToPos.y) * fallEased;
-      // Extra shake.
-      this._shakeAmount = Math.max(this._shakeAmount, 0.4 * (1 - fallProgress));
     }
 
     // State timer.
@@ -609,18 +529,10 @@ export class ExecutionSequence {
       'CART_STOP', 'EXIT_CART', 'CAPTAIN_ORDERS', 'LOKIR_FLEES',
       'RESUME', 'FIRST_EXEC', 'PLAYER_CALLED', 'PLAYER_WALKS',
       'PLAYER_KNEELS', 'PRE_DRAGON', 'DRAGON_ARRIVES', 'POST_DRAGON',
-      'DRAGON_ATTACK', 'PLAYER_DEATH',
     ];
     const idx = order.indexOf(state);
     if (idx < 0 || idx >= order.length - 1) return null;
     return order[idx + 1];
-  }
-
-  _updateHealthBar() {
-    const fill = document.querySelector('#health-bar .health-fill');
-    if (fill) {
-      fill.style.width = (this._playerHealth / this._maxHealth * 100) + '%';
-    }
   }
 
   _updateStateCamera(dt) {
@@ -717,18 +629,13 @@ export class ExecutionSequence {
         break;
       }
       case 'DRAGON_ARRIVES':
-      case 'POST_DRAGON':
-      case 'DRAGON_ATTACK': {
+      case 'POST_DRAGON': {
         // Look up at the dragon on the tower.
         this.camera.position.x = this._camToPos.x + sway * 0.3;
         this.camera.position.y = this._camToPos.y;
         this.camera.position.z = this._camToPos.z;
         const dragonPos = this.dragon.group.position;
         this.camera.lookAt(dragonPos.x, dragonPos.y, dragonPos.z);
-        break;
-      }
-      case 'PLAYER_DEATH': {
-        // Camera is handled by death fall logic in update().
         break;
       }
     }

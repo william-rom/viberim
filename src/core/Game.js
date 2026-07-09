@@ -31,6 +31,12 @@ export class Game {
 
     this.voice = new Voice();
     this.ambient = new Ambient();
+
+    this._dragonSound = new Audio('/skyrim-dragon.mp3');
+    this._dragonSoundPlayed = false;
+    this._battleSound = new Audio('/skyrim-battle-anthem.mp3');
+    this._battleSound.loop = true;
+    this._battleSound.volume = 0.5;
   }
 
   async init() {
@@ -210,6 +216,7 @@ export class Game {
       if (lineIdx >= dialogue.length) {
         speaking = false;
         this.cartSequence.cart.setSpeaker(null);
+        this.cartSequence.finishIn(5);
         return;
       }
       speaking = true;
@@ -248,7 +255,12 @@ export class Game {
       this.scene, this.terrain, this.camera,
       this.cartSequence, this.city, this.voice, canvas
     );
-    this.execSequence.onComplete = () => this._onPlayerDeath();
+    this.execSequence.onComplete = () => this._onExecutionComplete();
+    this.execSequence.onDragonLand = () => {
+      this._dragonSound.play();
+      this._dragonSoundPlayed = true;
+      setTimeout(() => { this._battleSound.play(); }, 1500);
+    };
 
     this._update = (dt) => {
       this.execSequence.update(dt);
@@ -257,20 +269,156 @@ export class Game {
     };
   }
 
+  _onExecutionComplete() {
+    // Transition to free-roam with the dragon active and attacking.
+    this.state = 'CITY_EXPLORE';
+    const canvas = this.renderer.renderer.domElement;
+
+    // Capture the final camera pose before switching.
+    const fromPos = this.camera.position.clone();
+    const fromLook = new THREE.Vector3();
+    this.camera.getWorldDirection(fromLook);
+    fromLook.multiplyScalar(5).add(fromPos);
+
+    // Clean up the execution sequence's input listeners.
+    if (this.execSequence) this.execSequence.destroy();
+
+    // Clean up cart input.
+    if (this.cartSequence) this.cartSequence.destroy();
+
+    // Hide all overlays.
+    for (const id of ['fade', 'start', 'loading', 'title-card', 'explore-prompt']) {
+      const el = document.getElementById(id);
+      if (el) { el.style.display = 'none'; el.style.opacity = '0'; }
+    }
+
+    this.cityExplore = new CityExplore(
+      this.scene, this.terrain, this.camera, this.city, canvas
+    );
+
+    // Spawn the player near the execution block, facing the tower.
+    this.cityExplore.spawn(BLOCK.x, BLOCK.z + 2, 0);
+    this.cityExplore.beginTransition(fromPos, fromLook, 1.2);
+
+    // Show health bar.
+    const hb = document.getElementById('health-bar');
+    if (hb) hb.style.display = 'block';
+
+    // Dragon attack state.
+    this._playerHealth = 3;
+    this._maxHealth = 3;
+    this._nextFireT = 3.0;
+    this._fireHitTimer = 0;
+    this._updateHealthBar();
+
+    // Request pointer lock.
+    this.cityExplore.input.requestLock();
+
+    // Re-lock on click if the user pressed Esc.
+    canvas.addEventListener('click', () => {
+      if (this.state === 'CITY_EXPLORE' && !this.cityExplore.input.locked) {
+        this.cityExplore.input.requestLock();
+      }
+    });
+
+    // Show HUD.
+    const hud = document.getElementById('hud');
+    hud.style.opacity = '1';
+
+    this._update = (dt) => {
+      this.cityExplore.update(dt);
+
+      // Keep dragon alive.
+      const dragon = this.execSequence.dragon;
+      if (dragon) dragon.update(this.elapsed, dt);
+
+      // --- Dragon attack logic ---
+      this._nextFireT -= dt;
+      if (this._nextFireT <= 0) {
+        const playerPos = new THREE.Vector3();
+        this.camera.getWorldPosition(playerPos);
+        playerPos.y += 0.5;
+        dragon.breatheFire(playerPos);
+        if (!this._dragonSoundPlayed) {
+          this._dragonSound.play();
+          this._dragonSoundPlayed = true;
+        }
+        this._nextFireT = 3.5;
+        this._fireHitTimer = 1.2;
+      }
+      if (this._fireHitTimer > 0) {
+        this._fireHitTimer -= dt;
+        if (this._fireHitTimer <= 0) {
+          this._playerHealth--;
+          this._updateHealthBar();
+          // Screen flash red.
+          const fade = document.getElementById('fade');
+          if (fade) {
+            fade.style.transition = 'opacity 0.15s ease';
+            fade.style.opacity = '0.4';
+            fade.style.display = 'block';
+            setTimeout(() => {
+              fade.style.transition = 'opacity 0.5s ease';
+              fade.style.opacity = '0';
+              setTimeout(() => { fade.style.display = 'none'; }, 600);
+            }, 150);
+          }
+          if (this._playerHealth <= 0) {
+            this._onPlayerDeath();
+          }
+        }
+      }
+    };
+  }
+
   _onPlayerDeath() {
     this.state = 'GAME_OVER';
-    // Game over screen is already shown by ExecutionSequence.
-    // Click to restart.
+    const hb = document.getElementById('health-bar');
+    if (hb) hb.style.display = 'none';
+
+    // Stop battle music.
+    this._battleSound.pause();
+
+    const dragon = this.execSequence ? this.execSequence.dragon : null;
+
+    // Speak the line, then fade to black and show game over.
+    const sub = document.getElementById('subtitle');
+    const subName = sub.querySelector('.name');
+    const subLine = sub.querySelector('.line');
+    subName.textContent = 'Nazeem';
+    subLine.textContent = 'Do you get to the Cloud District very often? Oh, what am I saying, of course you don\'t.';
+    sub.style.opacity = '1';
+
+    this.voice.speakAs('ralof', subLine.textContent).then(() => {
+      sub.style.opacity = '0';
+      // Fade to black.
+      const fade = document.getElementById('fade');
+      fade.style.transition = 'opacity 2s ease-in';
+      fade.style.opacity = '1';
+      fade.style.display = 'block';
+      setTimeout(() => {
+        const go = document.getElementById('game-over');
+        if (go) go.style.display = 'flex';
+      }, 2000);
+    });
+
+    this._update = (dt) => {
+      if (dragon) dragon.update(this.elapsed, dt);
+    };
+
     const go = document.getElementById('game-over');
     if (go) {
       go.addEventListener('click', () => {
         window.location.reload();
       }, { once: true });
     }
-    // Stop updating — just let the dragon idle.
-    this._update = (dt) => {
-      if (this.execSequence) this.execSequence.dragon.update(this.elapsed, dt);
-    };
+  }
+
+  _updateHealthBar() {
+    const fill = document.querySelector('#health-bar .health-fill');
+    if (fill) {
+      fill.style.width = (this._playerHealth / this._maxHealth * 100) + '%';
+    }
   }
 
   _showTitleCard(onDone) {

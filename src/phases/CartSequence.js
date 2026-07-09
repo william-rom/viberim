@@ -26,6 +26,7 @@ export class CartSequence {
     this.elapsed = 0;
     this.done = false;
     this.onComplete = null;
+    this._rushMultiplier = 1;
 
     // Camera rig offsets (relative to cart). The player sits on the LEFT bench
     // (-X), facing +X across the cart. Travel direction (-Z) is to the player's
@@ -106,7 +107,7 @@ export class CartSequence {
       this.input.endFrame();
       return;
     }
-    this.elapsed += dt;
+    this.elapsed += dt * this._rushMultiplier;
 
     // Ease speed: slow start, cruise, slow approach at the end.
     const u = Math.min(this.elapsed / this.duration, 1);
@@ -162,6 +163,13 @@ export class CartSequence {
 
   requestLook() {
     this.input.requestLock();
+  }
+
+  finishIn(seconds) {
+    const remaining = this.duration - this.elapsed;
+    if (remaining > seconds) {
+      this._rushMultiplier = remaining / seconds;
+    }
   }
 
   destroy() {

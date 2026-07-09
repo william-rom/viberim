@@ -8,7 +8,7 @@ const CHARACTER_PROFILES = {
   tullius:  { rate: 0.85, pitch: 0.38, voicePref: 'male' },
   haming:   { rate: 1.00, pitch: 1.50, voicePref: 'any' },
   torolf:   { rate: 0.90, pitch: 0.58, voicePref: 'male' },
-  captain:  { rate: 0.95, pitch: 0.48, voicePref: 'male' },
+  captain:  { rate: 0.95, pitch: 1.10, voicePref: 'female' },
   narrator: { rate: 0.90, pitch: 0.60, voicePref: 'male' },
 };
 

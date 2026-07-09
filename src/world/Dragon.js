@@ -337,6 +337,13 @@ export class Dragon {
     if (!this._fireParticles) {
       this._buildFireBreath();
     }
+    // Attach to scene (group's parent) so particles live in world space,
+    // unaffected by head/group rotations.
+    const parent = this.group.parent;
+    if (parent && this._fireParticles.parent !== parent) {
+      if (this._fireParticles.parent) this._fireParticles.parent.remove(this._fireParticles);
+      parent.add(this._fireParticles);
+    }
   }
 
   _buildFireBreath() {
@@ -344,12 +351,10 @@ export class Dragon {
     const positions = new Float32Array(count * 3);
     const lives = new Float32Array(count);
     const sizes = new Float32Array(count);
+    const velocities = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) {
       lives[i] = Math.random();
       sizes[i] = 0.5 + Math.random() * 0.8;
-      positions[i * 3] = 0;
-      positions[i * 3 + 1] = 0;
-      positions[i * 3 + 2] = 0;
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -389,9 +394,7 @@ export class Dragon {
     this._fireParticles = new THREE.Points(geo, mat);
     this._fireParticles.frustumCulled = false;
     this._fireCount = count;
-    // Attach to head so it comes from the mouth.
-    this.head.add(this._fireParticles);
-    this._fireParticles.position.set(0.6, -0.15, 0);
+    this._fireVelocities = velocities;
   }
 
   update(t, dt) {
@@ -426,7 +429,7 @@ export class Dragon {
         this._flying = false;
         this._perched = true;
         this.group.rotation.x = 0;
-        this.group.rotation.y = 0; // face the courtyard (toward -Z / toward player)
+        this.group.rotation.y = Math.PI / 2; // face -Z (toward courtyard/player)
       }
       return;
     }
@@ -473,40 +476,62 @@ export class Dragon {
       this._fireT -= dt;
       // Keep jaw open during fire.
       this.lowerJaw.rotation.x = 0.4;
-      // Aim head toward fire target.
+
+      // Compute mouth world position and direction to target.
+      const mouthWorld = new THREE.Vector3();
+      this.head.getWorldPosition(mouthWorld);
+      // Offset to front of snout in world space.
+      const fwd = new THREE.Vector3(1, 0, 0).applyQuaternion(this.head.getWorldQuaternion(new THREE.Quaternion()));
+      mouthWorld.addScaledVector(fwd, 0.6 * 3.0); // local offset * scale
+
+      let fireDir;
       if (this._fireTarget) {
-        const headWorld = new THREE.Vector3();
-        this.head.getWorldPosition(headWorld);
-        const dx = this._fireTarget.x - headWorld.x;
-        const dy = this._fireTarget.y - headWorld.y;
-        const dz = this._fireTarget.z - headWorld.z;
-        // Compute local-space direction (account for group rotation).
-        const dist = Math.sqrt(dx * dx + dz * dz);
-        const targetYaw = Math.atan2(dx, dz);
-        const targetPitch = Math.atan2(-dy, dist);
-        // Smoothly aim.
+        fireDir = this._fireTarget.clone().sub(mouthWorld);
+        const dist = fireDir.length();
+        fireDir.normalize();
+
+        // Aim dragon toward target.
+        const dx = this._fireTarget.x - this.group.position.x;
+        const dz = this._fireTarget.z - this.group.position.z;
+        const dy = this._fireTarget.y - this.group.position.y;
+        const horizDist = Math.sqrt(dx * dx + dz * dz);
+        const targetYaw = Math.atan2(-dz, dx);
+        const targetPitch = Math.atan2(-dy, horizDist);
         let dyaw = targetYaw - this.group.rotation.y;
         while (dyaw > Math.PI) dyaw -= Math.PI * 2;
         while (dyaw < -Math.PI) dyaw += Math.PI * 2;
-        this.group.rotation.y += dyaw * 0.05;
-        this.head.rotation.x += (targetPitch * 0.7 - this.head.rotation.x) * 0.05;
+        this.group.rotation.y += dyaw * 0.08;
+        this.head.rotation.x += (targetPitch * 0.5 - this.head.rotation.x) * 0.08;
+      } else {
+        fireDir = new THREE.Vector3(1, 0, 0).applyQuaternion(this.group.quaternion);
       }
-      // Update fire particles — travel forward from mouth in local +X.
+
+      // Update fire particles in world space.
       if (this._fireParticles) {
         const pos = this._fireParticles.geometry.attributes.position.array;
         const lives = this._fireParticles.geometry.attributes.life.array;
+        const vel = this._fireVelocities;
+        const speed = 25;
         for (let i = 0; i < this._fireCount; i++) {
           lives[i] += dt * 1.2;
           if (lives[i] >= 1) {
             lives[i] = 0;
-            pos[i * 3] = 0;
-            pos[i * 3 + 1] = 0;
-            pos[i * 3 + 2] = 0;
+            // Spawn at mouth with velocity toward target + spread.
+            pos[i * 3] = mouthWorld.x;
+            pos[i * 3 + 1] = mouthWorld.y;
+            pos[i * 3 + 2] = mouthWorld.z;
+            const spread = 0.2;
+            vel[i * 3]   = fireDir.x + (Math.random() - 0.5) * spread;
+            vel[i * 3 + 1] = fireDir.y + (Math.random() - 0.5) * spread;
+            vel[i * 3 + 2] = fireDir.z + (Math.random() - 0.5) * spread;
+            const vl = Math.sqrt(vel[i*3]**2 + vel[i*3+1]**2 + vel[i*3+2]**2);
+            vel[i * 3]   = (vel[i * 3]   / vl) * speed;
+            vel[i * 3 + 1] = (vel[i * 3 + 1] / vl) * speed;
+            vel[i * 3 + 2] = (vel[i * 3 + 2] / vl) * speed;
           }
-          // Travel forward (+X is the dragon's forward / mouth direction).
-          pos[i * 3] += dt * 12;
-          pos[i * 3 + 1] += (Math.random() - 0.4) * dt * 3;
-          pos[i * 3 + 2] += (Math.random() - 0.5) * dt * 3;
+          pos[i * 3]   += vel[i * 3]   * dt;
+          pos[i * 3 + 1] += vel[i * 3 + 1] * dt;
+          pos[i * 3 + 2] += vel[i * 3 + 2] * dt;
         }
         this._fireParticles.geometry.attributes.position.needsUpdate = true;
         this._fireParticles.geometry.attributes.life.needsUpdate = true;
