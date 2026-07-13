@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="description" content="A GLM 5.2 Production" />
+    <title>Viberim</title>
+    <style>
+      :root {
+        --parchment: #d8c9a0;
+        --ink: #1a1712;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+        color: var(--parchment);
+        font-family: Georgia, 'Times New Roman', serif;
+        -webkit-font-smoothing: antialiased;
+        cursor: default;
+      }
+      #app { position: fixed; inset: 0; }
+      canvas { display: block; }
+
+      /* Fade overlay used for fade-in-from-black */
+      #fade {
+        position: fixed;
+        inset: 0;
+        background: #000;
+        pointer-events: none;
+        opacity: 1;
+        transition: opacity 5s ease-in-out;
+        z-index: 20;
+      }
+
+      /* Start screen */
+      #start {
+        position: fixed;
+        inset: 0;
+        z-index: 30;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1.5rem;
+        background:
+          radial-gradient(ellipse at center, rgba(20,18,14,0.55) 0%, rgba(0,0,0,0.92) 75%);
+        backdrop-filter: blur(2px);
+        cursor: pointer;
+        user-select: none;
+      }
+      #start h1 {
+        font-size: clamp(2.5rem, 7vw, 5rem);
+        letter-spacing: 0.12em;
+        font-weight: 400;
+        text-shadow: 0 0 24px rgba(0,0,0,0.9);
+        color: #efe6cf;
+      }
+      #start p {
+        font-size: clamp(0.9rem, 1.6vw, 1.15rem);
+        letter-spacing: 0.25em;
+        text-transform: uppercase;
+        opacity: 0.7;
+        animation: pulse 2.4s ease-in-out infinite;
+      }
+      #start .credit {
+        position: absolute;
+        bottom: 2rem;
+        font-size: 0.75rem;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        opacity: 0.35;
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 0.35; }
+        50% { opacity: 0.85; }
+      }
+
+      /* Subtitle bar for the voice line */
+      #subtitle {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 12%;
+        z-index: 25;
+        text-align: center;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.5s ease;
+      }
+      #subtitle .name {
+        display: block;
+        font-size: clamp(0.75rem, 1.4vw, 0.95rem);
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: #c4a868;
+        text-shadow: 0 2px 8px rgba(0,0,0,0.95);
+        margin-bottom: 0.3rem;
+        font-style: italic;
+      }
+      #subtitle .line {
+        display: block;
+        font-size: clamp(1rem, 2.2vw, 1.5rem);
+        letter-spacing: 0.04em;
+        color: #f4ead0;
+        text-shadow: 0 2px 10px rgba(0,0,0,0.95), 0 0 4px rgba(0,0,0,0.9);
+        max-width: 80%;
+        margin: 0 auto;
+      }
+
+      /* Crosshair / hint for city phase */
+      #hud {
+        position: fixed;
+        inset: 0;
+        z-index: 15;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.8s ease;
+      }
+      #hud .dot {
+        position: absolute;
+        left: 50%; top: 50%;
+        width: 6px; height: 6px;
+        margin: -3px 0 0 -3px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.5);
+        box-shadow: 0 0 4px rgba(0,0,0,0.8);
+      }
+      #hud .hint {
+        position: absolute;
+        left: 50%; bottom: 6%;
+        transform: translateX(-50%);
+        font-size: 0.8rem;
+        letter-spacing: 0.15em;
+        text-transform: uppercase;
+        opacity: 0.5;
+        white-space: nowrap;
+      }
+
+      #loading {
+        position: fixed;
+        inset: 0;
+        z-index: 40;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #000;
+        color: #8a8270;
+        font-size: 0.85rem;
+        letter-spacing: 0.3em;
+        text-transform: uppercase;
+      }
+
+      #health-bar {
+        position: fixed;
+        bottom: 60px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 25;
+        width: 280px;
+        text-align: center;
+      }
+      #health-bar .health-track {
+        width: 100%;
+        height: 12px;
+        background: rgba(20,10,10,0.8);
+        border: 1px solid rgba(120,40,20,0.6);
+        border-radius: 2px;
+        overflow: hidden;
+      }
+      #health-bar .health-fill {
+        height: 100%;
+        width: 100%;
+        background: linear-gradient(180deg, #d44030 0%, #8a1a0a 100%);
+        transition: width 0.3s ease;
+      }
+      #health-bar .health-label {
+        font-family: Georgia, serif;
+        font-size: 0.65rem;
+        letter-spacing: 0.3em;
+        color: #c4a878;
+        margin-top: 4px;
+        text-transform: uppercase;
+      }
+
+      #game-over {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(ellipse at center, rgba(40,5,5,0.7) 0%, rgba(0,0,0,0.95) 75%);
+        font-family: Georgia, serif;
+        color: #c4a878;
+        cursor: pointer;
+      }
+      #game-over h1 {
+        font-size: clamp(2.5rem, 7vw, 5rem);
+        letter-spacing: 0.15em;
+        font-weight: 400;
+        color: #8a2020;
+        text-shadow: 0 0 40px rgba(120,20,10,0.8), 0 0 10px rgba(0,0,0,0.9);
+        margin-bottom: 1rem;
+      }
+      #game-over .death-subtitle {
+        font-size: clamp(0.9rem, 1.8vw, 1.2rem);
+        font-style: italic;
+        opacity: 0.7;
+        margin-bottom: 3rem;
+      }
+      #game-over .death-restart {
+        font-size: clamp(0.7rem, 1.2vw, 0.9rem);
+        letter-spacing: 0.25em;
+        text-transform: uppercase;
+        opacity: 0.5;
+        animation: pulse 2.4s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 0.35; }
+        50% { opacity: 0.7; }
+      }
+    </style>
+    <script type="module" crossorigin src="/assets/index-DsHvmsHf.js"></script>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <div id="hud">
+      <div class="dot"></div>
+      <div class="hint">WASD move &nbsp;·&nbsp; Shift sprint &nbsp;·&nbsp; Space jump &nbsp;·&nbsp; Esc release</div>
+    </div>
+
+    <div id="health-bar" style="display:none">
+      <div class="health-track"><div class="health-fill"></div></div>
+      <div class="health-label">HEALTH</div>
+    </div>
+
+    <div id="subtitle"><span class="name"></span><span class="line"></span></div>
+
+    <div id="fade"></div>
+
+    <div id="start" hidden>
+      <h1>VIBERIM</h1>
+      <p>Click to begin</p>
+    </div>
+
+    <div id="game-over" style="display:none">
+      <h1>YOU HAVE DIED</h1>
+      <p class="death-subtitle">The dragon's fire consumes you…</p>
+      <p class="death-restart">Click to try again</p>
+    </div>
+
+    <div id="loading">Forging the world…</div>
+
+  </body>
+</html>
